@@ -1,0 +1,49 @@
+version: '3.9'
+
+services:
+  mr-db:
+    image: mysql:8.0
+    command: --default-authentication-plugin=mysql_native_password
+    networks:
+      - mr-network
+    environment:
+      MYSQL_DATABASE: mrdatabase
+      MYSQL_USER: myuser
+      MYSQL_PASSWORD: mypassword
+      MYSQL_ROOT_PASSWORD: myrootpassword
+    ports:
+      - "3306:3306"
+    volumes:
+      - mr_db_data:/var/lib/mysql
+
+  # mr-api:
+  #   build: .
+  #   command: python app.py
+  #   ports:
+  #     - "5000:5000"
+  #   depends_on:
+  #     - mr-db
+  #   environment:
+  #     DATABASE_URL: mysql+pymysql://myuser:mypassword@db/mrdatabase
+  
+  mr-phpmyadmin:
+    image: phpmyadmin/phpmyadmin
+    ports:
+      - "8080:80"
+    networks:
+      - mr-network
+    environment:
+      PMA_HOST: mr-db
+      PMA_USER: myuser
+      PMA_PASSWORD: mypassword
+    depends_on:
+      - mr-db
+    
+
+volumes:
+  mr_db_data:
+
+networks:
+  default:
+    external:
+      name: mr-network
