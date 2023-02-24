@@ -4,16 +4,12 @@ import gzip
 
 # URLs der Gzip-Dateien
 url_list = [
-    "https://example.com/file1.gz",
-    "https://example.com/file2.gz",
-    "https://example.com/file3.gz"
+    "https://datasets.imdbws.com/name.basics.tsv.gz",
 ]
 
 # Speicherpfad der Gzip-Dateien
 file_path_list = [
-    "/path/to/file1.gz",
-    "/path/to/file2.gz",
-    "/path/to/file3.gz"
+    "./tsv_dump/name.basics.tsv.gz",
 ]
 
 # Überprüfe, ob die Gzip-Dateien vorhanden sind und lade sie herunter, falls nicht
