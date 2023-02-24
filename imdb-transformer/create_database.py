@@ -305,7 +305,7 @@ if __name__ == '__main__':
     for filename, dataframe in dataframes.items():
         dataframe.to_feather(f"./feather_dump/original_tables/{filename}.ftr")
     
-    
+    '''
     metadata_obj = sa.MetaData()
     
     logging.info("Define sql tables")
@@ -328,3 +328,5 @@ if __name__ == '__main__':
     
     logging.info('Fill sql Tables')
     fill_database(dataframes, db_engine)
+
+'''

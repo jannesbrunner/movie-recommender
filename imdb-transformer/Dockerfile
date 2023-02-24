@@ -11,7 +11,7 @@ COPY requirements.txt .
 RUN pip install -r requirements.txt
 
 # Kopiere den Rest des Codes ins Image
-COPY . .
+# COPY . .
 
 # Führe das Python-Skript aus
 CMD ["python", "create_database.py"]
