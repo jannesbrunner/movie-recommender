@@ -3,3 +3,4 @@ numpy
 sqlalchemy
 pymysql
 requests
+pyarrow
