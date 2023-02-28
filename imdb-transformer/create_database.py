@@ -3,6 +3,9 @@ import logging
 
 import sqlalchemy as sa
 import pandas as pd
+import numpy as np
+from tqdm import tqdm
+
 
 
 logging.basicConfig(level=logging.INFO, filename='create_database.log', format='%(levelname)s :: %(message)s')
@@ -47,19 +50,19 @@ def load_imdb_dump(file_path, nrows=None):
             **general_parameters,
     )
 
-    logging.info("Read title.basics")
-    tables['title.basics'] = pd.read_csv(
-            f"{file_path}/title.basics.tsv",
-            dtype={'runtimeMinutes': 'Int64',
-                   'startYear': 'Int64',
-                   'endYear': 'Int64'
-                   },
-            converters={'isAdult': conv},
-            # there are cells in the csv which beginns with a " but dont close them!!
-            # therefore we have to ignore quotations. wtf IMDb?
-            quoting=csv.QUOTE_NONE, 
-            **general_parameters,
-    )
+    # logging.info("Read title.basics")
+    # tables['title.basics'] = pd.read_csv(
+    #         f"{file_path}/title.basics.tsv",
+    #         dtype={'runtimeMinutes': 'Int64',
+    #                'startYear': 'Int64',
+    #                'endYear': 'Int64'
+    #                },
+    #         converters={'isAdult': conv},
+    #         # there are cells in the csv which beginns with a " but dont close them!!
+    #         # therefore we have to ignore quotations. wtf IMDb?
+    #         quoting=csv.QUOTE_NONE, 
+    #         **general_parameters,
+    # )
 
     logging.info("Read title.crew")
     tables['title.crew'] = pd.read_csv(
@@ -67,12 +70,12 @@ def load_imdb_dump(file_path, nrows=None):
             **general_parameters
     )
 
-    logging.info("Read title.episode")
-    tables['title.episode'] = pd.read_csv(
-            f"{file_path}/title.episode.tsv",
-            dtype={'seasonNumber': 'Int64', 'episodeNumber': 'Int64'},
-            **general_parameters,
-    )
+    # logging.info("Read title.episode")
+    # tables['title.episode'] = pd.read_csv(
+    #         f"{file_path}/title.episode.tsv",
+    #         dtype={'seasonNumber': 'Int64', 'episodeNumber': 'Int64'},
+    #         **general_parameters,
+    # )
 
     logging.info("Read title.principals")
     tables['title.principals'] = pd.read_csv(
@@ -86,12 +89,12 @@ def load_imdb_dump(file_path, nrows=None):
             **general_parameters
     )
 
-    logging.info("Read name.basics")
-    tables['name.basics'] = pd.read_csv(
-        f"{file_path}/name.basics.tsv",
-        dtype={'birthYear': 'Int64', 'deathYear': 'Int64'},
-        **general_parameters
-    )
+    # logging.info("Read name.basics")
+    # tables['name.basics'] = pd.read_csv(
+    #     f"{file_path}/name.basics.tsv",
+    #     dtype={'birthYear': 'Int64', 'deathYear': 'Int64'},
+    #     **general_parameters
+    # )
     
     return tables
 
@@ -235,13 +238,9 @@ def define_sql_tables(metadata_obj):
     
 def fill_database(tables, db_engine):
     
-    logging.info("Write name_basics")
-    name_basics = tables['name.basics'][['nconst', 'primaryName', 'birthYear', 'deathYear']]
-    name_basics.to_sql('name_basics', con=db_engine, index=False, if_exists='append')
-    
-    logging.info("Write title_basics")
-    title_basics = dataframes['title.basics'][['tconst', 'titleType', 'primaryTitle', 'originalTitle', 'isAdult', 'startYear', 'endYear', 'runtimeMinutes']]
-    title_basics.to_sql('title_basics', con=db_engine, index=False, if_exists='append')
+    # logging.info("Write title_basics")
+    # title_basics = dataframes['title.basics'][['tconst', 'titleType', 'primaryTitle', 'originalTitle', 'isAdult', 'startYear', 'endYear', 'runtimeMinutes']]
+    # title_basics.to_sql('title_basics', con=db_engine, index=False, if_exists='append')
     
     logging.info("Write title_principals")
     title_principals = dataframes['title.principals'][['tconst', 'ordering', 'nconst', 'category', 'job', 'characters']]
@@ -291,30 +290,147 @@ def fill_database(tables, db_engine):
     title_genres.to_sql('title_genres', con=db_engine, index=False, if_exists='append')
 
 
+def list_explode(list_column, new_name):
+    df[list_column] = df[list_column].str.split(',')
+    df = df.explode(list_column)
+    return df.rename(columns={list_column: new_name})
+
+def csv2sql(file_path, filename, table_name, dtypes, specific_parameters=None, explode=None):
+    if specific_parameters is None:
+        specific_parameters = {}
+    
+    general_parameters = {
+        'sep': '\t',
+        'nrows': None,
+        'na_values': r"\N",
+        'chunksize': 1000,
+        'iterator':True,
+        'quoting': csv.QUOTE_NONE,
+    }
+
+    num_rows = sum(1 for line in open(f'{file_path}/{filename}'))
+    with tqdm(total=num_rows) as pbar:
+        df = pd.read_csv(
+                f"{file_path}/{filename}",
+                usecols=dtypes.keys(),
+                dtype=dtypes,
+                **specific_parameters,
+                **general_parameters,
+        )
+        for chunk in df:
+            if explode:
+                chunk = list_explode(explode[0], explode[1])
+            chunk.to_sql(table_name, con=db_engine, index=False, if_exists='append')
+            pbar.update(len(chunk))
+
+
+def bool_conv(x):
+    try:
+        return bool(x)
+    except:
+        logging.warning(f"value {x} could not be parset to boolean and will be replaced with NaN")
+        return np.nan
+
+title_basics_dtypes = {
+    'tconst': 'string',
+    'titleType': 'category',
+    'primaryTitle': 'string',
+    'originalTitle': 'string',
+    'isAdult': 'boolean',
+    'startYear': 'Int16',
+    'endYear': 'Int16',
+    'runtimeMinutes': 'Int32',
+}
+
+name_basics_dtypes = {
+    'nconst': 'string',
+    'primaryName': 'string',
+    'birthYear': 'Int16',
+    'deathYear': 'Int16',
+}
+
+title_episode_dtypes = {
+    'tconst': 'string',
+    'parentTconst': 'string',
+    'seasonNumber': 'Int16',
+    'episodeNumber': 'Int16',
+}
+
+title_akas_dtypes = {
+    'tconst': 'string',
+    'ordering': 'Int16',
+    'title': 'string',
+    'region': 'string',
+    'language': 'string',
+    'isOriginalTitle': 'boolean',
+}
+
+title_ratings_dtypes = {
+    'tconst': 'string',
+    'averageRating': 'float',
+    'numVotes': 'Int32',
+}
+
+title_principals_dtypes = {
+    'tconst': 'string',
+    'ordering': 'Int16',
+    'nconst': 'string',
+    'category': 'category',
+    'job': 'category',
+    'characters': 'string',
+}
+
+title_genres_dtypes = {
+    'tconst': 'string',
+    'genre': 'string',
+}
+
+title_directors_dtypes = {
+    'tconst': 'string',
+    'nconst': 'string',
+}
+
+title_writers_dtypes = {
+    'tconst': 'string',
+    'nconst': 'string',
+}
+
+name_knownForTitles_dtypes = {
+    'nconst': 'string',
+    'tconst': 'string',
+}
+
+name_primaryProfessions_dtypes = {
+    'nconst': 'string',
+    'profession': 'string',
+}
+
 
 if __name__ == '__main__':
+
+
     
-    logging.info("Load Dataframes")
-    dataframes = load_imdb_dump('./tsv_dump', nrows=None)
+    # logging.info("Load Dataframes")
+    # dataframes = load_imdb_dump('./tsv_dump', nrows=None)
     
     # dataframes = load_tables_from_feather(f"./feather_dump/original_tables")
     
     
     # write dataframes to feather
-    logging.info("Write tables to feather")
-    for filename, dataframe in dataframes.items():
-        dataframe.to_feather(f"./feather_dump/original_tables/{filename}.ftr")
+    # logging.info("Write tables to feather")
+    # for filename, dataframe in dataframes.items():
+    #     dataframe.to_feather(f"./feather_dump/original_tables/{filename}.ftr")
     
-    '''
+    
     metadata_obj = sa.MetaData()
     
     logging.info("Define sql tables")
     define_sql_tables(metadata_obj)
     
     sql_user = 'root'
-    sql_pass = 'password'
+    sql_pass = 'myrootpassword'
     sql_host = 'localhost'
-    sql_db = 'imdb'
+    sql_db = 'mrdatabase'
 
     logging.info("connect to Database")
     db_connection_str = f'mysql+pymysql://{sql_user}:{sql_pass}@{sql_host}/{sql_db}?charset=utf8mb4'
@@ -327,6 +443,13 @@ if __name__ == '__main__':
     metadata_obj.create_all(db_engine)
     
     logging.info('Fill sql Tables')
-    fill_database(dataframes, db_engine)
 
-'''
+    csv2sql(
+        file_path='./imdb-transformer/tsv_dump',
+        filename='title.basics.tsv',
+        table_name='title_basics',
+        dtypes=title_basics_dtypes,
+    )
+
+
+    # fill_database(dataframes, db_engine)
