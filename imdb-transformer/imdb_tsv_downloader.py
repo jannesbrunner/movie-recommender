@@ -44,11 +44,10 @@ for url, file_path in zip(url_list, file_path_list):
             with open(file_path, "wb") as f:
                 dl = 0
                 total_length = int(total_length)
-                for data in response.iter_content(chunk_size=4096):
-                    dl += len(data)
-                    f.write(data)
-                    done = int(50 * dl / total_length)
-                    print(f"\r[{'=' * done}{' ' * (50-done)}] {dl/total_length:.2%}", end="")
+                with tqdm(total=total_length) as pbar:
+                    for data in response.iter_content(chunk_size=4096):
+                        f.write(data)
+                        pbar.update(4096)
             print(f"\r{file_path} downloaded.")
     else:
         print(f"{file_path} already exists.")
