@@ -446,12 +446,32 @@ if __name__ == '__main__':
     logging.info("connect to Database")
     db_connection_str = f'mysql+pymysql://{sql_user}:{sql_pass}@{sql_host}/{sql_db}?charset=utf8mb4'
     db_engine = sa.create_engine(db_connection_str)
+
+    sql_table_list = [
+        'name_basics',
+        'name_knownForTitles',
+        'name_PrimaryProfessions',
+        'title_basics',
+        'title_akas',
+        'title_directors',
+        'title_episode',
+        'title_genres',
+        'title_principals',
+        'title_ratings',
+        'title_writers',
+    ]
     
     logging.info('Drop sql Tables')
-    metadata_obj.drop_all(db_engine)
+    metadata_obj.drop_all(
+        db_engine,
+        tables=sql_table_list
+    )
     
     logging.info('Create sql Tables')
-    metadata_obj.create_all(db_engine)
+    metadata_obj.create_all(
+        db_engine,
+        tables=sql_table_list,
+    )
     
     logging.info('Fill sql Tables')
 
