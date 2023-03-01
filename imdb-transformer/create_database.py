@@ -1,21 +1,12 @@
 import csv
 import logging
+import datetime
+import os
 
 import sqlalchemy as sa
 import pandas as pd
 import numpy as np
 from tqdm import tqdm
-
-
-
-logging.basicConfig(level=logging.INFO, filename='create_database.log', format='%(levelname)s :: %(message)s')
-console_handler = logging.StreamHandler()
-console_handler.setLevel(logging.INFO)
-console_handler.setFormatter(logging.Formatter('%(levelname)s :: %(asctime)s :: %(message)s'))
-logger = logging.getLogger()
-logger.addHandler(console_handler)
-
-
 
 def load_imdb_dump(file_path, nrows=None):
     '''Load Data from *.tsv files to Pandas Dataframes
@@ -50,19 +41,19 @@ def load_imdb_dump(file_path, nrows=None):
             **general_parameters,
     )
 
-    # logging.info("Read title.basics")
-    # tables['title.basics'] = pd.read_csv(
-    #         f"{file_path}/title.basics.tsv",
-    #         dtype={'runtimeMinutes': 'Int64',
-    #                'startYear': 'Int64',
-    #                'endYear': 'Int64'
-    #                },
-    #         converters={'isAdult': conv},
-    #         # there are cells in the csv which beginns with a " but dont close them!!
-    #         # therefore we have to ignore quotations. wtf IMDb?
-    #         quoting=csv.QUOTE_NONE, 
-    #         **general_parameters,
-    # )
+    logging.info("Read title.basics")
+    tables['title.basics'] = pd.read_csv(
+            f"{file_path}/title.basics.tsv",
+            dtype={'runtimeMinutes': 'Int64',
+                   'startYear': 'Int64',
+                   'endYear': 'Int64'
+                   },
+            converters={'isAdult': conv},
+            # there are cells in the csv which beginns with a " but dont close them!!
+            # therefore we have to ignore quotations. wtf IMDb?
+            quoting=csv.QUOTE_NONE, 
+            **general_parameters,
+    )
 
     logging.info("Read title.crew")
     tables['title.crew'] = pd.read_csv(
@@ -290,12 +281,11 @@ def fill_database(tables, db_engine):
     title_genres.to_sql('title_genres', con=db_engine, index=False, if_exists='append')
 
 
-def list_explode(list_column, new_name):
+def list_explode(df, list_column):
     df[list_column] = df[list_column].str.split(',')
-    df = df.explode(list_column)
-    return df.rename(columns={list_column: new_name})
+    return df.explode(list_column)
 
-def csv2sql(file_path, filename, table_name, dtypes, specific_parameters=None, explode=None):
+def csv2sql(file_path, filename, table_name, dtypes, specific_parameters=None, explode=None, rename=None):
     if specific_parameters is None:
         specific_parameters = {}
     
@@ -307,7 +297,8 @@ def csv2sql(file_path, filename, table_name, dtypes, specific_parameters=None, e
         'iterator':True,
         'quoting': csv.QUOTE_NONE,
     }
-
+    errorcount = 0
+    logging.info(f"Reading {filename} into {table_name}")
     num_rows = sum(1 for line in open(f'{file_path}/{filename}'))
     with tqdm(total=num_rows) as pbar:
         df = pd.read_csv(
@@ -319,8 +310,15 @@ def csv2sql(file_path, filename, table_name, dtypes, specific_parameters=None, e
         )
         for chunk in df:
             if explode:
-                chunk = list_explode(explode[0], explode[1])
-            chunk.to_sql(table_name, con=db_engine, index=False, if_exists='append')
+                chunk = list_explode(chunk, list_column=explode)
+            if rename:
+                chunk.rename(columns=rename, inplace=True)
+            try:
+                chunk.to_sql(table_name, con=db_engine, index=False, if_exists='append')
+            except Exception as e:
+                logging.error(f"Error while writing chunk to {table_name}: {e}")
+                chunk.to_csv(f"{file_path}/failed_chunks/{table_name}{errorcount}.csv", index=False)
+                errorcount += 1
             pbar.update(len(chunk))
 
 
@@ -357,7 +355,7 @@ title_episode_dtypes = {
 }
 
 title_akas_dtypes = {
-    'tconst': 'string',
+    'titleId': 'string',
     'ordering': 'Int16',
     'title': 'string',
     'region': 'string',
@@ -408,7 +406,20 @@ name_primaryProfessions_dtypes = {
 
 if __name__ == '__main__':
 
+    execution_path = os.path.dirname(os.path.realpath(__file__))
 
+    logging.basicConfig(level=logging.INFO, filename=f'{execution_path}/create_database.log', format='%(levelname)s :: %(message)s')
+
+    console_handler = logging.StreamHandler()
+    console_handler.setLevel(logging.INFO)
+    console_handler.setFormatter(logging.Formatter('%(levelname)s :: %(asctime)s :: %(message)s'))
+    logger = logging.getLogger()
+    logger.addHandler(console_handler)
+
+
+    logging.info("Start")
+    now = datetime.datetime.now()
+    logging.info(now)
     
     # logging.info("Load Dataframes")
     # dataframes = load_imdb_dump('./tsv_dump', nrows=None)
@@ -444,12 +455,99 @@ if __name__ == '__main__':
     
     logging.info('Fill sql Tables')
 
+    file_path=f'{execution_path}/tsv_dump'
+
     csv2sql(
-        file_path='./imdb-transformer/tsv_dump',
+        file_path=file_path,
         filename='title.basics.tsv',
         table_name='title_basics',
         dtypes=title_basics_dtypes,
     )
 
+    csv2sql(
+        file_path=file_path,
+        filename='name.basics.tsv',
+        table_name='name_basics',
+        dtypes=name_basics_dtypes,
+    )
+
+    csv2sql(
+        file_path=file_path,
+        filename='title.episode.tsv',
+        table_name='title_episode',
+        dtypes=title_episode_dtypes,
+    )
+
+    csv2sql(
+        file_path=file_path,
+        filename='title.akas.tsv',
+        table_name='title_akas',
+        dtypes=title_akas_dtypes,
+        specific_parameters={'rename': {'titleId': 'tconst'}},
+    )
+
+    csv2sql(
+        file_path=file_path,
+        filename='title.ratings.tsv',
+        table_name='title_ratings',
+        dtypes=title_ratings_dtypes,
+    )
+
+    csv2sql(
+        file_path=file_path,
+        filename='title.principals.tsv',
+        table_name='title_principals',
+        dtypes=title_principals_dtypes,
+    )
+
+    csv2sql(
+        file_path=file_path,
+        filename='title.basics.tsv',
+        table_name='title_genres',
+        dtypes=title_genres_dtypes,
+        explode='genres',
+        rename={'genres': 'genre'},
+    )
+
+    csv2sql(
+        file_path=file_path,
+        filename='title.crew.tsv',
+        table_name='title_directors',
+        dtypes=title_directors_dtypes,
+        explode='directors',
+        rename={'directors': 'nconst'},
+    )
+
+    csv2sql(
+        file_path=file_path,
+        filename='title.crew.tsv',
+        table_name='title_writers',
+        dtypes=title_writers_dtypes,
+        explode='writers',
+        rename={'writers': 'nconst'},
+    )
+
+    csv2sql(
+        file_path=file_path,
+        filename='name.basics.tsv',
+        table_name='name_knownForTitles',
+        dtypes=name_knownForTitles_dtypes,
+        explode='knownForTitles',
+        rename={'knownForTitles': 'tconst'},
+    )
+
+    csv2sql(
+        file_path=file_path,
+        filename='name.basics.tsv',
+        table_name='name_primaryProfessions',
+        dtypes=name_primaryProfessions_dtypes,
+        explode='primaryProfessions',
+        rename={'primaryProfessions': 'profession'},
+    )
+
+    logging.info("Done")
+    end = datetime.datetime.now()
+    logging.info(end)
+    logging.info(end - now)
 
     # fill_database(dataframes, db_engine)
