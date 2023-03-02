@@ -2,6 +2,8 @@ import csv
 import logging
 import datetime
 import os
+from multiprocessing import Pool
+
 
 import sqlalchemy as sa
 import pandas as pd
@@ -313,24 +315,28 @@ def csv2sql(file_path, filename, table_name, dtypes, connection,
                 **specific_parameters,
                 **general_parameters,
         )
-        for chunk in df:
-            if explode:
-                chunk[explode] = chunk[explode].str.split(',')
-                chunk = chunk.explode(explode)
-                chunk = chunk.dropna(subset=[explode])
-                chunk = chunk.drop_duplicates()
-            if rename:
-                chunk.rename(columns=rename, inplace=True)
-            
-            if check_foreign_keys:
-                for key_column, basic_keys in check_foreign_keys.items():
-                    failed_keys = filter_not_existing_keys(chunk[key_column], basic_keys)
-                    chunk = chunk[~chunk[key_column].isin(failed_keys)]
+        # for chunk in df:
+        with Pool(6) as p:
+            p.map(process_chunk, [(chunk, table_name, connection, explode, rename, pbar) for chunk in df])
+    
+def process_chunk(chunk, table_name, connection, explode, rename, pbar):            
+    if explode:
+        chunk[explode] = chunk[explode].str.split(',')
+        chunk = chunk.explode(explode)
+        chunk = chunk.dropna(subset=[explode])
+        chunk = chunk.drop_duplicates()
+    if rename:
+        chunk.rename(columns=rename, inplace=True)
 
-            chunk.to_sql(table_name, con=connection, index=False, if_exists='append')
-            pbar.update(len(chunk))
+    chunk.to_sql(table_name, con=connection, index=False, if_exists='append')
+    pbar.update(len(chunk))
 
 
+    
+    # if check_foreign_keys:
+    #     for key_column, basic_keys in check_foreign_keys.items():
+    #         failed_keys = filter_not_existing_keys(chunk[key_column], basic_keys)
+    #         chunk = chunk[~chunk[key_column].isin(failed_keys)]
 def filter_not_existing_keys(foreign_keys, basic_keys):
     failed_keys = foreign_keys[~basic_keys.isin(basic_keys)]
     if len(failed_keys) > 0:
