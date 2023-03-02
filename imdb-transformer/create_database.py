@@ -281,9 +281,9 @@ def fill_database(tables, db_engine):
     title_genres.to_sql('title_genres', con=db_engine, index=False, if_exists='append')
 
 
-def list_explode(df, list_column):
-    df[list_column] = df[list_column].str.split(',')
-    return df.explode(list_column)
+# def list_explode(df, list_column):
+#     df[list_column] = df[list_column].str.split(',')
+#     return df.explode(list_column)
 
 def csv2sql(file_path, filename, table_name, dtypes, connection,
             specific_parameters=None, 
@@ -315,7 +315,8 @@ def csv2sql(file_path, filename, table_name, dtypes, connection,
         )
         for chunk in df:
             if explode:
-                chunk = list_explode(chunk, list_column=explode)
+                chunk[explode] = chunk[explode].str.split(',')
+                chunk = chunk.explode(explode)
                 chunk = chunk.dropna(subset=[explode])
                 chunk = chunk.drop_duplicates()
             if rename:
