@@ -125,8 +125,8 @@ def define_sql_tables(metadata_obj):
         metadata_obj,
         sa.Column('tconst', sa.String(index_str_length), primary_key=True),
         sa.Column('titleType', sa.String(str_length)),
-        sa.Column('primaryTitle', sa.String(title_length)),
-        sa.Column('originalTitle', sa.String(title_length)),
+        sa.Column('primaryTitle', sa.Text()),
+        sa.Column('originalTitle', sa.Text()),
         sa.Column('isAdult', sa.Boolean()),
         sa.Column('startYear', sa.Integer()),
         sa.Column('endYear', sa.Integer()),
@@ -136,7 +136,7 @@ def define_sql_tables(metadata_obj):
     )
     
     name_primaryProfessions = sa.Table(
-        'name_PrimaryProfessions',
+        'name_primary_professions',
         metadata_obj,
         sa.Column('nconst', sa.String(index_str_length), sa.ForeignKey("name_basics.nconst"), primary_key=True),
         sa.Column('profession', sa.String(str_length), primary_key=True),
@@ -145,7 +145,7 @@ def define_sql_tables(metadata_obj):
     )
     
     name_knownForTitles = sa.Table(
-        'name_knownForTitles',
+        'name_known_for_titles',
         metadata_obj,
         sa.Column('nconst', sa.String(index_str_length), sa.ForeignKey("name_basics.nconst"), primary_key=True),
         sa.Column('tconst', sa.String(index_str_length), sa.ForeignKey("title_basics.tconst"), primary_key=True),
@@ -187,8 +187,8 @@ def define_sql_tables(metadata_obj):
         sa.Column('ordering', sa.Integer(), primary_key=True),
         sa.Column('nconst', sa.String(index_str_length), sa.ForeignKey("name_basics.nconst")), #, primary_key=True),
         sa.Column('category', sa.String(str_length)),
-        sa.Column('job', sa.String(str_length)),
-        sa.Column('characters', sa.String(str_length)),
+        sa.Column('job', sa.Text()),
+        sa.Column('characters', sa.Text()),
         mysql_engine='InnoDB',
         mysql_charset='utf8mb4',
     )
@@ -197,7 +197,7 @@ def define_sql_tables(metadata_obj):
         'title_ratings',
         metadata_obj,
         sa.Column('tconst', sa.String(index_str_length), sa.ForeignKey("title_basics.tconst"), primary_key=True),
-        sa.Column('averageVotes', sa.Float()),
+        sa.Column('averageRating', sa.Float()),
         sa.Column('numVotes', sa.Integer()),
         mysql_engine='InnoDB',
         mysql_charset='utf8mb4',
@@ -208,7 +208,7 @@ def define_sql_tables(metadata_obj):
         metadata_obj,
         sa.Column('tconst', sa.String(index_str_length), sa.ForeignKey("title_basics.tconst"), primary_key=True),
         sa.Column('ordering', sa.Integer(), primary_key=True),
-        sa.Column('title', sa.String(title_length)),
+        sa.Column('title', sa.Text()),
         sa.Column('region', sa.String(str_length)),
         sa.Column('language', sa.String(str_length)),
         sa.Column('isOriginalTitle', sa.Boolean()),
@@ -285,7 +285,7 @@ def list_explode(df, list_column):
     df[list_column] = df[list_column].str.split(',')
     return df.explode(list_column)
 
-def csv2sql(file_path, filename, table_name, dtypes, 
+def csv2sql(file_path, filename, table_name, dtypes, connection,
             specific_parameters=None, 
             explode=None, 
             rename=None,
@@ -297,9 +297,11 @@ def csv2sql(file_path, filename, table_name, dtypes,
         'sep': '\t',
         'nrows': None,
         'na_values': r"\N",
-        'chunksize': 1000,
+        'chunksize': 5000,
         'iterator':True,
         'quoting': csv.QUOTE_NONE,
+        'low_memory': False,
+        'on_bad_lines': 'warn',
     }
     logging.info(f"Reading {filename} into {table_name}")
     num_rows = sum(1 for line in open(f'{file_path}/{filename}'))
@@ -314,6 +316,8 @@ def csv2sql(file_path, filename, table_name, dtypes,
         for chunk in df:
             if explode:
                 chunk = list_explode(chunk, list_column=explode)
+                chunk = chunk.dropna(subset=[explode])
+                chunk = chunk.drop_duplicates()
             if rename:
                 chunk.rename(columns=rename, inplace=True)
             
@@ -322,7 +326,7 @@ def csv2sql(file_path, filename, table_name, dtypes,
                     failed_keys = filter_not_existing_keys(chunk[key_column], basic_keys)
                     chunk = chunk[~chunk[key_column].isin(failed_keys)]
 
-            chunk.to_sql(table_name, con=db_engine, index=False, if_exists='append')
+            chunk.to_sql(table_name, con=connection, index=False, if_exists='append')
             pbar.update(len(chunk))
 
 
@@ -361,8 +365,8 @@ name_basics_dtypes = {
 title_episode_dtypes = {
     'tconst': 'string',
     'parentTconst': 'string',
-    'seasonNumber': 'Int16',
-    'episodeNumber': 'Int16',
+    'seasonNumber': 'Int32',
+    'episodeNumber': 'Int32',
 }
 
 title_akas_dtypes = {
@@ -391,27 +395,27 @@ title_principals_dtypes = {
 
 title_genres_dtypes = {
     'tconst': 'string',
-    'genre': 'string',
+    'genres': 'string',
 }
 
 title_directors_dtypes = {
     'tconst': 'string',
-    'nconst': 'string',
+    'directors': 'string',
 }
 
 title_writers_dtypes = {
     'tconst': 'string',
-    'nconst': 'string',
+    'writers': 'string',
 }
 
 name_knownForTitles_dtypes = {
     'nconst': 'string',
-    'tconst': 'string',
+    'knownForTitles': 'string',
 }
 
 name_primaryProfessions_dtypes = {
     'nconst': 'string',
-    'profession': 'string',
+    'primaryProfession': 'string',
 }
 
 
@@ -458,7 +462,7 @@ if __name__ == '__main__':
     db_connection_str = f'mysql+pymysql://{sql_user}:{sql_pass}@{sql_host}/{sql_db}?charset=utf8mb4'
     db_engine = sa.create_engine(db_connection_str)
     db_conncetion = db_engine.connect()
-
+    result = db_conncetion.execute(sa.text( "SET foreign_key_checks = 0;"))
     sql_table_list = [
         sa.table('name_basics'),
         sa.text('name_knownForTitles'),
@@ -473,53 +477,48 @@ if __name__ == '__main__':
         sa.text('title_writers'),
     ]
     
-    # logging.info('Drop sql Tables')
-    # metadata_obj.drop_all(
-    #     db_engine,
-    #     tables=sql_table_list
-    # )
+    logging.info('Drop sql Tables')
+    metadata_obj.drop_all(
+        db_engine,
+        # tables=sql_table_list
+    )
     
-    # logging.info('Create sql Tables')
-    # metadata_obj.create_all(
-    #     db_engine,
-    #     tables=sql_table_list,
-    # )
+    logging.info('Create sql Tables')
+    metadata_obj.create_all(
+        db_engine,
+        # tables=sql_table_list,
+    )
     
     logging.info('Fill sql Tables')
 
     file_path=f'{execution_path}/tsv_dump'
 
-    # csv2sql(
-    #     file_path=file_path,
-    #     filename='title.basics.tsv',
-    #     table_name='title_basics',
-    #     dtypes=title_basics_dtypes,
-    # )
+    csv2sql(
+        file_path=file_path,
+        filename='title.basics.tsv',
+        table_name='title_basics',
+        dtypes=title_basics_dtypes,
+        connection=db_conncetion,
+    )
 
-    # csv2sql(
-    #     file_path=file_path,
-    #     filename='name.basics.tsv',
-    #     table_name='name_basics',
-    #     dtypes=name_basics_dtypes,
-    # )
+    csv2sql(
+        file_path=file_path,
+        filename='name.basics.tsv',
+        table_name='name_basics',
+        dtypes=name_basics_dtypes,
+        connection=db_conncetion,
+    )
 
-    logging.info('load title_basics keys')
-    title_basics_keys_query = sa.select(sa.column('tconst')).select_from(sa.text('title_basics'))
-    db_tb = pd.read_sql(title_basics_keys_query, con=db_conncetion)
-    title_basics_keys = db_tb.tconst
 
-    logging.info('load name_basics keys')
-    name_basics_keys_query = sa.select(sa.column('nconst')).select_from(sa.text('name_basics'))
-    db_nb = pd.read_sql(name_basics_keys_query, con=db_conncetion)
-    name_basics_keys = db_nb.nconst
 
     csv2sql(
         file_path=file_path,
         filename='title.episode.tsv',
         table_name='title_episode',
         dtypes=title_episode_dtypes,
-        check_foreign_keys={'parentTconst': title_basics_keys,
-                            'tconst': title_basics_keys},
+        connection=db_conncetion,
+        #check_foreign_keys={'parentTconst': title_basics_keys,
+         #                   'tconst': title_basics_keys},
     )
 
     csv2sql(
@@ -527,8 +526,9 @@ if __name__ == '__main__':
         filename='title.akas.tsv',
         table_name='title_akas',
         dtypes=title_akas_dtypes,
+        connection=db_conncetion,
         rename= {'titleId': 'tconst'},
-        check_foreign_keys={'tconst': title_basics_keys},
+       # check_foreign_keys={'tconst': title_basics_keys},
     )
 
     csv2sql(
@@ -536,7 +536,8 @@ if __name__ == '__main__':
         filename='title.ratings.tsv',
         table_name='title_ratings',
         dtypes=title_ratings_dtypes,
-        check_foreign_keys={'tconst': title_basics_keys},
+        connection=db_conncetion,
+        # check_foreign_keys={'tconst': title_basics_keys},
     )
 
     csv2sql(
@@ -544,7 +545,8 @@ if __name__ == '__main__':
         filename='title.principals.tsv',
         table_name='title_principals',
         dtypes=title_principals_dtypes,
-        check_foreign_keys={'tconst': title_basics_keys},
+        connection=db_conncetion,
+        # check_foreign_keys={'tconst': title_basics_keys},
     )
 
     csv2sql(
@@ -552,6 +554,7 @@ if __name__ == '__main__':
         filename='title.basics.tsv',
         table_name='title_genres',
         dtypes=title_genres_dtypes,
+        connection=db_conncetion,
         explode='genres',
         rename={'genres': 'genre'},
     )
@@ -561,9 +564,10 @@ if __name__ == '__main__':
         filename='title.crew.tsv',
         table_name='title_directors',
         dtypes=title_directors_dtypes,
+        connection=db_conncetion,
         explode='directors',
         rename={'directors': 'nconst'},
-        check_foreign_keys={'nconst': name_basics_keys, 'tconst': title_basics_keys},
+       # check_foreign_keys={'nconst': name_basics_keys, 'tconst': title_basics_keys},
     )
 
     csv2sql(
@@ -571,29 +575,32 @@ if __name__ == '__main__':
         filename='title.crew.tsv',
         table_name='title_writers',
         dtypes=title_writers_dtypes,
+        connection=db_conncetion,
         explode='writers',
         rename={'writers': 'nconst'},
-        check_foreign_keys={'nconst': name_basics_keys, 'tconst': title_basics_keys},
+       # check_foreign_keys={'nconst': name_basics_keys, 'tconst': title_basics_keys},
     )
 
     csv2sql(
         file_path=file_path,
         filename='name.basics.tsv',
-        table_name='name_knownForTitles',
+        table_name='name_known_for_titles',
         dtypes=name_knownForTitles_dtypes,
+        connection=db_conncetion,
         explode='knownForTitles',
         rename={'knownForTitles': 'tconst'},
-        check_foreign_keys={'tconst': title_basics_keys, 'nconst': name_basics_keys},
+        # check_foreign_keys={'tconst': title_basics_keys, 'nconst': name_basics_keys},
     )
 
     csv2sql(
         file_path=file_path,
         filename='name.basics.tsv',
-        table_name='name_primaryProfessions',
+        table_name='name_primary_professions',
         dtypes=name_primaryProfessions_dtypes,
-        explode='primaryProfessions',
-        rename={'primaryProfessions': 'profession'},
-        check_foreign_keys={'nconst': name_basics_keys},
+        connection=db_conncetion,
+        explode='primaryProfession',
+        rename={'primaryProfession': 'profession'},
+        # check_foreign_keys={'nconst': name_basics_keys},
     )
 
     logging.info("Done")
